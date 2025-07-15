@@ -1,0 +1,158 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+    <title>CPU Stress Testing Dashboard</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; background: #f5f5f5; }
+        .container { max-width: 1200px; margin: 0 auto; }
+        .header { background: #2c3e50; color: white; padding: 20px; border-radius: 8px; margin-bottom: 20px; }
+        .metrics-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; margin-bottom: 20px; }
+        .metric-card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .test-buttons { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; margin-bottom: 20px; }
+        .test-btn { padding: 15px; background: #3498db; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 16px; }
+        .test-btn:hover { background: #2980b9; }
+        .test-btn:disabled { background: #bdc3c7; cursor: not-allowed; }
+        .status { background: white; padding: 20px; border-radius: 8px; margin-bottom: 20px; }
+        .results { background: white; padding: 20px; border-radius: 8px; }
+        .progress-bar { width: 100%; height: 20px; background: #ecf0f1; border-radius: 10px; overflow: hidden; }
+        .progress-fill { height: 100%; background: #27ae60; transition: width 0.3s ease; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>CPU Stress Testing Dashboard</h1>
+            <p>Test your CPU performance with parallel algorithms</p>
+        </div>
+        
+        <div class="metrics-grid">
+            <div class="metric-card">
+                <h3>System Info</h3>
+                <div id="system-info">
+                    <p>CPU Cores: {{ system_info.cpu.logical_cores }}</p>
+                    <p>Memory: {{ "%.1f"|format(system_info.memory.total_gb) }} GB</p>
+                    <p>Uptime: {{ system_info.uptime_hours }} hours</p>
+                </div>
+            </div>
+            
+            <div class="metric-card">
+                <h3>Current Metrics</h3>
+                <div id="current-metrics">
+                    <p>CPU Usage: <span id="cpu-usage">0%</span></p>
+                    <p>Memory Usage: <span id="memory-usage">0%</span></p>
+                    <p>Temperature: <span id="temperature">N/A</span></p>
+                </div>
+            </div>
+        </div>
+        
+        <div class="test-buttons">
+            <button class="test-btn" onclick="runTest('prime')">Prime Generation</button>
+            <button class="test-btn" onclick="runTest('matrix')">Matrix Multiplication</button>
+            <button class="test-btn" onclick="runTest('fibonacci')">Fibonacci Sequence</button>
+            <button class="test-btn" onclick="runTest('sorting')">Parallel Sorting</button>
+            <button class="test-btn" onclick="runTest('monte-carlo')">Monte Carlo π</button>
+        </div>
+        
+        <div class="status">
+            <h3>Test Status</h3>
+            <div id="test-status">Ready to run tests</div>
+            <div class="progress-bar" style="display: none;">
+                <div class="progress-fill" id="progress-fill"></div>
+            </div>
+        </div>
+        
+        <div class="results">
+            <h3>Recent Test Results</h3>
+            <div id="test-results">
+                {% for result in test_results %}
+                <div style="border: 1px solid #ddd; padding: 10px; margin: 10px 0; border-radius: 4px;">
+                    <strong>{{ result.test_type }}</strong> - {{ result.timestamp }}
+                    <br>Execution time: {{ "%.2f"|format(result.test_results.execution_time) }}s
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        let currentTest = null;
+        
+        async function runTest(testType) {
+            if (currentTest) {
+                alert('A test is already running!');
+                return;
+            }
+            
+            const buttons = document.querySelectorAll('.test-btn');
+            buttons.forEach(btn => btn.disabled = true);
+            
+            try {
+                const response = await fetch(`/api/stress-test/${testType}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                
+                if (response.ok) {
+                    currentTest = testType;
+                    document.getElementById('test-status').textContent = `Running ${testType} test...`;
+                    document.querySelector('.progress-bar').style.display = 'block';
+                    monitorTest();
+                } else {
+                    const error = await response.json();
+                    alert(`Error: ${error.error}`);
+                }
+            } catch (error) {
+                alert(`Error: ${error.message}`);
+            } finally {
+                if (!currentTest) {
+                    buttons.forEach(btn => btn.disabled = false);
+                }
+            }
+        }
+        
+        async function monitorTest() {
+            const interval = setInterval(async () => {
+                try {
+                    const response = await fetch('/api/test-status');
+                    const status = await response.json();
+                    
+                    if (!status.running) {
+                        clearInterval(interval);
+                        currentTest = null;
+                        document.getElementById('test-status').textContent = 'Test completed!';
+                        document.querySelector('.progress-bar').style.display = 'none';
+                        
+                        const buttons = document.querySelectorAll('.test-btn');
+                        buttons.forEach(btn => btn.disabled = false);
+                        
+                        // Refresh results
+                        location.reload();
+                    } else {
+                        document.getElementById('test-status').textContent = 
+                            `Running ${status.test_name} test... (${status.test_duration?.toFixed(1)}s)`;
+                    }
+                } catch (error) {
+                    console.error('Error monitoring test:', error);
+                }
+            }, 1000);
+        }
+        
+        // Update metrics every 2 seconds
+        setInterval(async () => {
+            try {
+                const response = await fetch('/api/current-metrics');
+                const metrics = await response.json();
+                
+                document.getElementById('cpu-usage').textContent = `${metrics.cpu_percent.toFixed(1)}%`;
+                document.getElementById('memory-usage').textContent = `${metrics.memory_percent.toFixed(1)}%`;
+                document.getElementById('temperature').textContent = 
+                    metrics.temperature ? `${metrics.temperature.toFixed(1)}°C` : 'N/A';
+            } catch (error) {
+                console.error('Error fetching metrics:', error);
+            }
+        }, 2000);
+    </script>
+</body>
+</html>
+    
