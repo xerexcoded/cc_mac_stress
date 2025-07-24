@@ -13,10 +13,14 @@
         .test-btn { padding: 15px; background: #3498db; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 16px; }
         .test-btn:hover { background: #2980b9; }
         .test-btn:disabled { background: #bdc3c7; cursor: not-allowed; }
+        .comprehensive-btn { background: #e74c3c; font-weight: bold; grid-column: 1 / -1; }
+        .comprehensive-btn:hover { background: #c0392b; }
         .status { background: white; padding: 20px; border-radius: 8px; margin-bottom: 20px; }
         .results { background: white; padding: 20px; border-radius: 8px; }
         .progress-bar { width: 100%; height: 20px; background: #ecf0f1; border-radius: 10px; overflow: hidden; }
         .progress-fill { height: 100%; background: #27ae60; transition: width 0.3s ease; }
+        .comprehensive-progress { margin-top: 10px; }
+        .subtest-info { font-style: italic; color: #7f8c8d; margin-top: 5px; }
     </style>
 </head>
 <body>
@@ -47,6 +51,7 @@
         </div>
         
         <div class="test-buttons">
+            <button class="test-btn comprehensive-btn" onclick="runTest('comprehensive')">🚀 Run All Tests (Comprehensive)</button>
             <button class="test-btn" onclick="runTest('prime')">Prime Generation</button>
             <button class="test-btn" onclick="runTest('matrix')">Matrix Multiplication</button>
             <button class="test-btn" onclick="runTest('fibonacci')">Fibonacci Sequence</button>
@@ -60,6 +65,9 @@
             <div class="progress-bar" style="display: none;">
                 <div class="progress-fill" id="progress-fill"></div>
             </div>
+            <div id="comprehensive-info" class="comprehensive-progress" style="display: none;">
+                <div class="subtest-info" id="subtest-info"></div>
+            </div>
         </div>
         
         <div class="results">
@@ -68,7 +76,13 @@
                 {% for result in test_results %}
                 <div style="border: 1px solid #ddd; padding: 10px; margin: 10px 0; border-radius: 4px;">
                     <strong>{{ result.test_type }}</strong> - {{ result.timestamp }}
-                    <br>Execution time: {{ "%.2f"|format(result.test_results.execution_time) }}s
+                    {% if result.test_type == 'comprehensive' %}
+                        <br>Tests: {{ result.tests_successful }}/{{ result.tests_run }} successful
+                        <br>Total time: {{ "%.2f"|format(result.total_execution_time) }}s
+                        <br>Success rate: {{ "%.1f"|format(result.summary.success_rate) }}%
+                    {% else %}
+                        <br>Execution time: {{ "%.2f"|format(result.test_results.execution_time) }}s
+                    {% endif %}
                 </div>
                 {% endfor %}
             </div>
@@ -95,7 +109,13 @@
                 
                 if (response.ok) {
                     currentTest = testType;
-                    document.getElementById('test-status').textContent = `Running ${testType} test...`;
+                    if (testType === 'comprehensive') {
+                        document.getElementById('test-status').textContent = 'Running comprehensive test suite...';
+                        document.getElementById('comprehensive-info').style.display = 'block';
+                    } else {
+                        document.getElementById('test-status').textContent = `Running ${testType} test...`;
+                        document.getElementById('comprehensive-info').style.display = 'none';
+                    }
                     document.querySelector('.progress-bar').style.display = 'block';
                     monitorTest();
                 } else {
@@ -122,6 +142,7 @@
                         currentTest = null;
                         document.getElementById('test-status').textContent = 'Test completed!';
                         document.querySelector('.progress-bar').style.display = 'none';
+                        document.getElementById('comprehensive-info').style.display = 'none';
                         
                         const buttons = document.querySelectorAll('.test-btn');
                         buttons.forEach(btn => btn.disabled = false);
@@ -129,8 +150,25 @@
                         // Refresh results
                         location.reload();
                     } else {
-                        document.getElementById('test-status').textContent = 
-                            `Running ${status.test_name} test... (${status.test_duration?.toFixed(1)}s)`;
+                        // Update progress bar
+                        const progressFill = document.getElementById('progress-fill');
+                        progressFill.style.width = `${status.progress || 0}%`;
+                        
+                        if (status.test_name === 'comprehensive') {
+                            let statusText = `Running comprehensive test suite...`;
+                            if (status.current_subtest) {
+                                statusText += ` (${status.current_subtest_index}/${status.total_subtests})`;
+                            }
+                            document.getElementById('test-status').textContent = statusText;
+                            
+                            if (status.current_subtest) {
+                                document.getElementById('subtest-info').textContent = 
+                                    `Currently running: ${status.current_subtest} test`;
+                            }
+                        } else {
+                            document.getElementById('test-status').textContent = 
+                                `Running ${status.test_name} test... (${status.test_duration?.toFixed(1)}s)`;
+                        }
                     }
                 } catch (error) {
                     console.error('Error monitoring test:', error);
