@@ -124,7 +124,14 @@ async def run_monte_carlo_stress_test(background_tasks: BackgroundTasks, iterati
     return {"message": "Monte Carlo stress test started", "iterations": iterations}
 
 
-
+@app.post("/api/stress-test/comprehensive")
+async def run_comprehensive_stress_test(background_tasks: BackgroundTasks):
+    """Run all stress tests sequentially with default parameters"""
+    if current_test_status["running"]:
+        return JSONResponse({"error": "A test is already running"}, status_code=400)
+    
+    background_tasks.add_task(execute_comprehensive_stress_test)
+    return {"message": "Comprehensive stress test started - will run all tests sequentially"}
 
 
 @app.get("/api/test-results")
@@ -221,6 +228,137 @@ async def execute_stress_test(test_type: str, params: Dict):
         })
 
 
+async def execute_comprehensive_stress_test():
+    """Execute all stress tests sequentially"""
+    global current_test_status, test_results_history
+    
+    test_id = f"comprehensive_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    comprehensive_start_time = datetime.now()
+    
+    # Define all tests with their default parameters
+    test_suite = [
+        ("prime", {"max_number": 1000000}),
+        ("matrix", {"size": 1000}),
+        ("fibonacci", {"max_n": 50000}),
+        ("sorting", {"array_size": 100000}),
+        ("monte_carlo", {"total_iterations": 10000000})
+    ]
+    
+    comprehensive_results = []
+    total_tests = len(test_suite)
+    
+    current_test_status.update({
+        "running": True,
+        "test_name": "comprehensive",
+        "test_id": test_id,
+        "progress": 0,
+        "current_subtest": None,
+        "total_subtests": total_tests
+    })
+    
+    try:
+        # Start comprehensive monitoring
+        monitor.start_stress_test_monitoring("comprehensive")
+        
+        for i, (test_type, params) in enumerate(test_suite):
+            current_test_status.update({
+                "progress": int((i / total_tests) * 100),
+                "current_subtest": test_type,
+                "current_subtest_index": i + 1
+            })
+            
+            print(f"Running {test_type} test ({i + 1}/{total_tests})...")
+            
+            try:
+                # Run individual test
+                if test_type == "prime":
+                    result = stress_tester.test_prime_generation(**params)
+                elif test_type == "matrix":
+                    result = stress_tester.test_matrix_multiplication(**params)
+                elif test_type == "fibonacci":
+                    result = stress_tester.test_fibonacci_sequence(**params)
+                elif test_type == "sorting":
+                    result = stress_tester.test_sorting_algorithms(**params)
+                elif test_type == "monte_carlo":
+                    result = stress_tester.test_monte_carlo_pi(**params)
+                
+                comprehensive_results.append({
+                    "test_type": test_type,
+                    "parameters": params,
+                    "result": result,
+                    "success": True
+                })
+                
+            except Exception as e:
+                comprehensive_results.append({
+                    "test_type": test_type,
+                    "parameters": params,
+                    "error": str(e),
+                    "success": False
+                })
+        
+        # Update final progress
+        current_test_status["progress"] = 100
+        
+        # Stop monitoring and get metrics
+        monitoring_results = monitor.stop_stress_test_monitoring()
+        
+        # Calculate comprehensive statistics
+        successful_tests = [r for r in comprehensive_results if r["success"]]
+        total_execution_time = sum(r["result"]["execution_time"] for r in successful_tests)
+        
+        # Combine results
+        final_result = {
+            "test_id": test_id,
+            "test_type": "comprehensive",
+            "timestamp": comprehensive_start_time.isoformat(),
+            "completed_at": datetime.now().isoformat(),
+            "total_execution_time": total_execution_time,
+            "tests_run": total_tests,
+            "tests_successful": len(successful_tests),
+            "tests_failed": total_tests - len(successful_tests),
+            "individual_results": comprehensive_results,
+            "monitoring_results": monitoring_results,
+            "summary": {
+                "total_time": total_execution_time,
+                "average_time_per_test": total_execution_time / len(successful_tests) if successful_tests else 0,
+                "success_rate": (len(successful_tests) / total_tests) * 100
+            }
+        }
+        
+        # Store results
+        test_results_history.append(final_result)
+        
+        # Keep only last 50 results
+        if len(test_results_history) > 50:
+            test_results_history.pop(0)
+            
+        print(f"Comprehensive test completed: {len(successful_tests)}/{total_tests} tests successful")
+        
+    except Exception as e:
+        error_result = {
+            "test_id": test_id,
+            "test_type": "comprehensive",
+            "timestamp": comprehensive_start_time.isoformat(),
+            "error": str(e),
+            "partial_results": comprehensive_results,
+            "monitoring_results": monitor.stop_stress_test_monitoring()
+        }
+        test_results_history.append(error_result)
+    
+    finally:
+        # Reset test status
+        current_test_status.update({
+            "running": False,
+            "test_name": None,
+            "test_id": None,
+            "progress": 0,
+            "current_subtest": None,
+            "total_subtests": None,
+            "current_subtest_index": None
+        })
+
+
 @app.get("/api/metrics/export")
 async def export_metrics():
     """Export monitoring metrics to JSON file"""
@@ -270,10 +408,14 @@ if __name__ == "__main__":
         .test-btn { padding: 15px; background: #3498db; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 16px; }
         .test-btn:hover { background: #2980b9; }
         .test-btn:disabled { background: #bdc3c7; cursor: not-allowed; }
+        .comprehensive-btn { background: #e74c3c; font-weight: bold; grid-column: 1 / -1; }
+        .comprehensive-btn:hover { background: #c0392b; }
         .status { background: white; padding: 20px; border-radius: 8px; margin-bottom: 20px; }
         .results { background: white; padding: 20px; border-radius: 8px; }
         .progress-bar { width: 100%; height: 20px; background: #ecf0f1; border-radius: 10px; overflow: hidden; }
         .progress-fill { height: 100%; background: #27ae60; transition: width 0.3s ease; }
+        .comprehensive-progress { margin-top: 10px; }
+        .subtest-info { font-style: italic; color: #7f8c8d; margin-top: 5px; }
     </style>
 </head>
 <body>
@@ -304,6 +446,7 @@ if __name__ == "__main__":
         </div>
         
         <div class="test-buttons">
+            <button class="test-btn comprehensive-btn" onclick="runTest('comprehensive')">🚀 Run All Tests (Comprehensive)</button>
             <button class="test-btn" onclick="runTest('prime')">Prime Generation</button>
             <button class="test-btn" onclick="runTest('matrix')">Matrix Multiplication</button>
             <button class="test-btn" onclick="runTest('fibonacci')">Fibonacci Sequence</button>
@@ -317,6 +460,9 @@ if __name__ == "__main__":
             <div class="progress-bar" style="display: none;">
                 <div class="progress-fill" id="progress-fill"></div>
             </div>
+            <div id="comprehensive-info" class="comprehensive-progress" style="display: none;">
+                <div class="subtest-info" id="subtest-info"></div>
+            </div>
         </div>
         
         <div class="results">
@@ -325,7 +471,13 @@ if __name__ == "__main__":
                 {% for result in test_results %}
                 <div style="border: 1px solid #ddd; padding: 10px; margin: 10px 0; border-radius: 4px;">
                     <strong>{{ result.test_type }}</strong> - {{ result.timestamp }}
-                    <br>Execution time: {{ "%.2f"|format(result.test_results.execution_time) }}s
+                    {% if result.test_type == 'comprehensive' %}
+                        <br>Tests: {{ result.tests_successful }}/{{ result.tests_run }} successful
+                        <br>Total time: {{ "%.2f"|format(result.total_execution_time) }}s
+                        <br>Success rate: {{ "%.1f"|format(result.summary.success_rate) }}%
+                    {% else %}
+                        <br>Execution time: {{ "%.2f"|format(result.test_results.execution_time) }}s
+                    {% endif %}
                 </div>
                 {% endfor %}
             </div>
@@ -352,7 +504,13 @@ if __name__ == "__main__":
                 
                 if (response.ok) {
                     currentTest = testType;
-                    document.getElementById('test-status').textContent = `Running ${testType} test...`;
+                    if (testType === 'comprehensive') {
+                        document.getElementById('test-status').textContent = 'Running comprehensive test suite...';
+                        document.getElementById('comprehensive-info').style.display = 'block';
+                    } else {
+                        document.getElementById('test-status').textContent = `Running ${testType} test...`;
+                        document.getElementById('comprehensive-info').style.display = 'none';
+                    }
                     document.querySelector('.progress-bar').style.display = 'block';
                     monitorTest();
                 } else {
@@ -379,6 +537,7 @@ if __name__ == "__main__":
                         currentTest = null;
                         document.getElementById('test-status').textContent = 'Test completed!';
                         document.querySelector('.progress-bar').style.display = 'none';
+                        document.getElementById('comprehensive-info').style.display = 'none';
                         
                         const buttons = document.querySelectorAll('.test-btn');
                         buttons.forEach(btn => btn.disabled = false);
@@ -386,8 +545,25 @@ if __name__ == "__main__":
                         // Refresh results
                         location.reload();
                     } else {
-                        document.getElementById('test-status').textContent = 
-                            `Running ${status.test_name} test... (${status.test_duration?.toFixed(1)}s)`;
+                        // Update progress bar
+                        const progressFill = document.getElementById('progress-fill');
+                        progressFill.style.width = `${status.progress || 0}%`;
+                        
+                        if (status.test_name === 'comprehensive') {
+                            let statusText = `Running comprehensive test suite...`;
+                            if (status.current_subtest) {
+                                statusText += ` (${status.current_subtest_index}/${status.total_subtests})`;
+                            }
+                            document.getElementById('test-status').textContent = statusText;
+                            
+                            if (status.current_subtest) {
+                                document.getElementById('subtest-info').textContent = 
+                                    `Currently running: ${status.current_subtest} test`;
+                            }
+                        } else {
+                            document.getElementById('test-status').textContent = 
+                                `Running ${status.test_name} test... (${status.test_duration?.toFixed(1)}s)`;
+                        }
                     }
                 } catch (error) {
                     console.error('Error monitoring test:', error);
